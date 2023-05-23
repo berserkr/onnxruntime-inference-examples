@@ -17,33 +17,54 @@
 package ai.onnxruntime.example.imageclassifier
 
 import android.graphics.*
+import android.util.Log
 import androidx.camera.core.ImageProxy
 import java.io.ByteArrayOutputStream
 import java.nio.FloatBuffer
 
 const val DIM_BATCH_SIZE = 1;
 const val DIM_PIXEL_SIZE = 3;
-const val IMAGE_SIZE_X = 224;
-const val IMAGE_SIZE_Y = 224;
+//const val IMAGE_SIZE_X = 320; // default is 224
+//const val IMAGE_SIZE_Y = IMAGE_SIZE_X;
+//val IMAGENET_PIXEL_MEAN = {123.675, 116.280, 103.530};
+//val IMAGENET_PIXEL_STD = {58.395, 57.12, 57.375};
 
-fun preProcess(bitmap: Bitmap): FloatBuffer {
+fun preProcess(bitmap: Bitmap, resolution: Int): FloatBuffer {
     val imgData = FloatBuffer.allocate(
             DIM_BATCH_SIZE
                     * DIM_PIXEL_SIZE
-                    * IMAGE_SIZE_X
-                    * IMAGE_SIZE_Y
+                    * resolution
+                    * resolution
     )
     imgData.rewind()
-    val stride = IMAGE_SIZE_X * IMAGE_SIZE_Y
+    val stride = resolution * resolution
     val bmpData = IntArray(stride)
     bitmap.getPixels(bmpData, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-    for (i in 0..IMAGE_SIZE_X - 1) {
-        for (j in 0..IMAGE_SIZE_Y - 1) {
-            val idx = IMAGE_SIZE_Y * i + j
+
+    for (i in 0..resolution - 1) {
+        for (j in 0..resolution - 1) {
+            val idx = resolution * i + j
             val pixelValue = bmpData[idx]
-            imgData.put(idx, (((pixelValue shr 16 and 0xFF) / 255f - 0.485f) / 0.229f))
-            imgData.put(idx + stride, (((pixelValue shr 8 and 0xFF) / 255f - 0.456f) / 0.224f))
-            imgData.put(idx + stride * 2, (((pixelValue and 0xFF) / 255f - 0.406f) / 0.225f))
+
+            val red = Color.red(pixelValue)
+            val green = Color.green(pixelValue)
+            val blue = Color.blue(pixelValue)
+
+//            Log.i(MainActivity.TAG, "Red: " + red + " => (" + idx + ", " + (red  / (red - 123.675f) / 58.395f) + ")")
+//            Log.i(MainActivity.TAG, "Green: " + green + " => (" + idx + ", " + (green  / (green - 116.280f) / 57.12f) + ")")
+//            Log.i(MainActivity.TAG, "Blue " + blue + " => (" + idx + ", " + (blue  / (blue - 103.530f) / 57.375f) + ")")
+
+//            imgData.put(idx * 3, (((red) / 255f - 0.485f) / 0.229f))
+//            imgData.put(idx * 3 + 1, (((green) / 255f - 0.456f) / 0.224f))
+//            imgData.put(idx * 3 + 2, (((blue) / 255f - 0.406f) / 0.225f))
+
+//            imgData.put(idx, (((red) / 255f - 0.485f) / 0.229f))
+//            imgData.put(idx + stride, (((green) / 255f - 0.456f) / 0.224f))
+//            imgData.put(idx + stride * 2, (((blue) / 255f - 0.406f) / 0.225f))
+
+            imgData.put(idx, (red - 123.675f) / 58.395f)
+            imgData.put(idx + stride, ( green - 116.280f) / 57.12f)
+            imgData.put(idx + stride * 2, (blue - 103.530f) / 57.375f)
         }
     }
 

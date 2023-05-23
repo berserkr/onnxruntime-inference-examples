@@ -30,9 +30,14 @@ class MainActivity : AppCompatActivity() {
     private var imageAnalysis: ImageAnalysis? = null
     private var enableQuantizedModel: Boolean = false
 
+    private var inferences: Int = 0
+    private var avgPeakMemory: Float = 0F
+    private var avgInferenceTime: Float = 0F
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
         // Request Camera permission
         if (allPermissionsGranted()) {
             ortEnv = OrtEnvironment.getEnvironment()
@@ -137,19 +142,33 @@ class MainActivity : AppCompatActivity() {
                 detected_item_value_3.text = "%.2f%%".format(result.detectedScore[2] * 100)
             }
 
-            inference_time_value.text = result.processTimeMs.toString() + "ms"
+            avgPeakMemory += result.peakMemory
+            avgInferenceTime += result.processTimeMs
+            inferences++
+
+            //if(inferences <= 100) {
+            inference_time_value.text = result.processTimeMs.toString() + " ms / Avg = " + "%.2f ms".format(avgInferenceTime/inferences)
+            peak_memory_value.text = result.peakMemory.toString() + " MB / Avg = " + "%.2f MB".format(avgPeakMemory/inferences)
+            //}
         }
     }
 
     // Read MobileNet V2 classification labels
     private fun readLabels(): List<String> {
-        return resources.openRawResource(R.raw.imagenet_classes).bufferedReader().readLines()
+        //return resources.openRawResource(R.raw.imagenet_classes).bufferedReader().readLines()
+        return resources.openRawResource(R.raw.tofa_classification_classes).bufferedReader().readLines()
     }
 
     // Read ort model into a ByteArray, run in background
     private suspend fun readModel(): ByteArray = withContext(Dispatchers.IO) {
-        val modelID =
-            if (enableQuantizedModel) R.raw.mobilenet_v2_uint8 else R.raw.mobilenet_v2_float
+
+        //val modelID = if (enableQuantizedModel) R.raw.mobilenet_v2_uint8 else R.raw.mobilenet_v2_float
+        val modelID = if (enableQuantizedModel) R.raw.tofa_classification_76_192 else R.raw.tofa_classification_1937_288
+        //val modelID = if (enableQuantizedModel) R.raw.epri_805_im288 else R.raw.epri_1270_im288
+
+        //val modelID = R.raw.tofa_detection_1205_320
+        //val modelID = R.raw.mobilenet_v3_large_im224
+
         resources.openRawResource(modelID).readBytes()
     }
 
@@ -165,7 +184,7 @@ class MainActivity : AppCompatActivity() {
             imageAnalysis?.clearAnalyzer()
             imageAnalysis?.setAnalyzer(
                     backgroundExecutor,
-                    ORTAnalyzer(createOrtSession(), ::updateUI)
+                    ORTAnalyzer(createOrtSession(), ::updateUI, enableQuantizedModel)
             )
         }
     }

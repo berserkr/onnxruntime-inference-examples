@@ -150,7 +150,29 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@android:color/black"
-                android:text="Enable Quantized Model"
+                android:text="Peak Memory"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/peak_memory_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="right"
+                android:textColor="@android:color/black"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Use Small Model"
+                android:textColor="@android:color/black"
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
