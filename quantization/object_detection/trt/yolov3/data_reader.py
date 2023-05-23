@@ -1,5 +1,5 @@
 from onnxruntime.quantization import CalibrationDataReader
-from preprocessing import yolov3_preprocess_func, yolov3_preprocess_func_2, yolov3_variant_preprocess_func, yolov3_variant_preprocess_func_2
+from preprocessing import yolov3_preprocess_func, yolov3_preprocess_func_2, yolov3_variant_preprocess_func, yolov3_variant_preprocess_func_2, tofa_preprocess_func
 import onnxruntime
 from argparse import Namespace
 import os
@@ -97,7 +97,7 @@ class YoloV3DataReader(ObejctDetectionDataReader):
     def load_serial(self):
         width = self.width
         height = self.height
-        nchw_data_list, filename_list, image_size_list = preprocess_func(self.image_folder, height, width,
+        nchw_data_list, filename_list, image_size_list = self.preprocess_func(self.image_folder, height, width,
                                                                                 self.start_index, self.stride)
         input_name = self.input_name
 
@@ -131,7 +131,7 @@ class YoloV3DataReader(ObejctDetectionDataReader):
         for index in range(0, stride, batch_size):
             start_index = self.start_index + index
             print("Load batch from index %s ..." % (str(start_index)))
-            nchw_data_list, filename_list, image_size_list = preprocess_func(self.image_folder, height, width,
+            nchw_data_list, filename_list, image_size_list = self.preprocess_func(self.image_folder, height, width,
                                                                                     start_index, batch_size)
 
             if nchw_data_list.size == 0:
@@ -225,7 +225,96 @@ class YoloV3VariantDataReader(YoloV3DataReader):
         for index in range(0, stride, batch_size):
             start_index = self.start_index + index
             print("Load batch from index %s ..." % (str(start_index)))
-            nchw_data_list, filename_list, image_size_list = preprocess_func(
+            nchw_data_list, filename_list, image_size_list = self.preprocess_func(
+                self.image_folder, height, width, start_index, batch_size)
+
+            if nchw_data_list.size == 0:
+                break
+
+            nchw_data_batch = []
+            image_id_batch = []
+            if self.is_evaluation:
+                img_name_to_img_id = self.img_name_to_img_id
+                for i in range(len(nchw_data_list)):
+                    nhwc_data = np.squeeze(nchw_data_list[i], 0)
+                    nchw_data_batch.append(nhwc_data)
+                    img_name = filename_list[i]
+                    image_id = img_name_to_img_id[img_name]
+                    image_id_batch.append(image_id)
+                batch_data = np.concatenate(np.expand_dims(nchw_data_batch, axis=0), axis=0)
+                batch_id = np.concatenate(np.expand_dims(image_id_batch, axis=0), axis=0)
+                print(batch_data.shape)
+                data = {input_name: batch_data, "image_size": image_size_list, "image_id": batch_id}
+            else:
+                for i in range(len(nchw_data_list)):
+                    nhwc_data = np.squeeze(nchw_data_list[i], 0)
+                    nchw_data_batch.append(nhwc_data)
+                batch_data = np.concatenate(np.expand_dims(nchw_data_batch, axis=0), axis=0)
+                print(batch_data.shape)
+                data = {input_name: batch_data}
+
+            batches.append(data)
+
+        return batches
+
+
+class TOFADataReader(YoloV3DataReader):
+    def __init__(self,
+                 calibration_image_folder,
+                 width=384,
+                 height=384,
+                 start_index=0,
+                 end_index=0,
+                 stride=1,
+                 batch_size=1,
+                 model_path='augmented_model.onnx',
+                 is_evaluation=False,
+                 annotations='./annotations/instances_val2017.json',
+                 preprocess_func=tofa_preprocess_func):
+        YoloV3DataReader.__init__(self, calibration_image_folder, width, height, start_index, end_index, stride,
+                                  batch_size, model_path, is_evaluation, annotations, preprocess_func)
+        # # self.input_name = '000_net'
+        # self.input_name = 'images'
+
+    def load_serial(self):
+        width = self.width
+        height = self.height
+        input_name = self.input_name
+        nchw_data_list, filename_list, image_size_list = self.preprocess_func(
+            self.image_folder, height, width, self.start_index, self.stride)
+
+        print("Start from index %s ..." % (str(self.start_index)))
+        data = []
+        if self.is_evaluation:
+            img_name_to_img_id = self.img_name_to_img_id
+            for i in range(len(nchw_data_list)):
+                nhwc_data = nchw_data_list[i]
+                file_name = filename_list[i]
+                data.append({
+                    input_name: nhwc_data,
+                    "image_id": img_name_to_img_id[file_name],
+                    "image_size": image_size_list[i]
+                })
+
+        else:
+            for i in range(len(nchw_data_list)):
+                nhwc_data = nchw_data_list[i]
+                file_name = filename_list[i]
+                data.append({input_name: nhwc_data})
+        return data
+
+    def load_batches(self):
+        width = self.width
+        height = self.height
+        stride = self.stride
+        batch_size = self.batch_size
+        input_name = self.input_name
+
+        batches = []
+        for index in range(0, stride, batch_size):
+            start_index = self.start_index + index
+            print("Load batch from index %s ..." % (str(start_index)))
+            nchw_data_list, filename_list, image_size_list = self.preprocess_func(
                 self.image_folder, height, width, start_index, batch_size)
 
             if nchw_data_list.size == 0:

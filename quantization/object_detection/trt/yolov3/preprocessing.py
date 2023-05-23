@@ -6,6 +6,9 @@ from PIL import Image
 import cv2
 import pdb
 
+IMAGENET_PIXEL_MEAN = np.array([123.675, 116.280, 103.530]) / 255
+IMAGENET_PIXEL_STD = np.array([58.395, 57.12, 57.375]) / 255
+
 def yolov3_preprocess_func(images_folder, height, width, start_index=0, size_limit=0):
     '''
     Loads a batch of images and preprocess them
@@ -248,6 +251,65 @@ def yolov3_variant_preprocess_func_2(images_folder, height, width, start_index=0
 
         unconcatenated_batch_data.append(img)
         image_size_list.append(img0.shape[0:2])  # img.shape is h, w, c
+
+    batch_data = np.concatenate(np.expand_dims(unconcatenated_batch_data, axis=0), axis=0)
+    return batch_data, batch_filenames, image_size_list
+
+def tofa_preprocess_func(images_folder, height, width, start_index=0, size_limit=0):
+    '''
+    Loads a batch of images and preprocess them
+    parameter images_folder: path to folder storing images
+    parameter height: image height in pixels
+    parameter width: image width in pixels
+    parameter size_limit: number of images to load. Default is 0 which means all images are picked.
+    return: list of matrices characterizing multiple images
+    '''
+
+    # reference from here:
+    # https://github.com/jkjung-avt/tensorrt_demos/blob/3fb15c908b155d5edc1bf098c6b8c31886cd8e8d/utils/yolo.py#L60
+    def _preprocess_tofa(img, input_shape):
+        """Preprocess an image before TRT YOLO inferencing.
+        # Args
+            img: int8 numpy array of shape (img_h, img_w, 3)
+            input_shape: a tuple of (H, W)
+        # Returns
+            preprocessed img: float32 numpy array of shape (3, H, W)
+        """
+        im_resize = cv2.resize(img, (input_shape[1], input_shape[0]))
+        im_norm = (im_resize/255.-IMAGENET_PIXEL_MEAN)/IMAGENET_PIXEL_STD
+        im_transpose = im_norm.transpose(2,0,1)
+
+        return im_transpose
+
+    image_names = os.listdir(images_folder)
+    if start_index >= len(image_names):
+        return np.asanyarray([]), np.asanyarray([]), np.asanyarray([])
+    elif size_limit > 0 and len(image_names) >= size_limit:
+        end_index = start_index + size_limit
+        if end_index > len(image_names):
+            end_index = len(image_names)
+
+        batch_filenames = [image_names[i] for i in range(start_index, end_index)]
+    else:
+        batch_filenames = image_names
+
+    unconcatenated_batch_data = []
+    image_size_list = []
+
+    print(batch_filenames)
+    print("size: %s" % str(len(batch_filenames)))
+
+    for image_name in batch_filenames:
+        image_filepath = images_folder + '/' + image_name
+        model_image_size = (height, width)
+
+        img = cv2.imread(image_filepath)
+        image_data = _preprocess_tofa(img, tuple(model_image_size))
+        image_data = np.ascontiguousarray(image_data)
+        image_data = np.expand_dims(image_data, 0)
+        unconcatenated_batch_data.append(image_data)
+        _height, _width, _ = img.shape
+        image_size_list.append(img.shape[0:2])  # img.shape is h, w, c
 
     batch_data = np.concatenate(np.expand_dims(unconcatenated_batch_data, axis=0), axis=0)
     return batch_data, batch_filenames, image_size_list

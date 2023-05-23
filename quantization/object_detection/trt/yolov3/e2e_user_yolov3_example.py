@@ -1,7 +1,7 @@
 import os
 from onnxruntime.quantization import create_calibrator, write_calibration_table, CalibrationMethod
-from data_reader import YoloV3DataReader, YoloV3VariantDataReader
-from preprocessing import yolov3_preprocess_func, yolov3_preprocess_func_2, yolov3_variant_preprocess_func, yolov3_variant_preprocess_func_2
+from data_reader import YoloV3DataReader, YoloV3VariantDataReader, TOFADataReader
+from preprocessing import yolov3_preprocess_func, yolov3_preprocess_func_2, yolov3_variant_preprocess_func, yolov3_variant_preprocess_func_2, tofa_preprocess_func
 from evaluate import YoloV3Evaluator, YoloV3VariantEvaluator,YoloV3Variant2Evaluator, YoloV3Variant3Evaluator
 
 
@@ -148,6 +148,62 @@ def get_prediction_evaluation_yolov3_variant(model_path, validation_dataset, pro
     evaluator.evaluate(result, annotations)
 
 
+def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dataset):
+
+    calibrator = create_calibrator(model_path, [], augmented_model_path=augmented_model_path, calibrate_method=CalibrationMethod.Entropy)
+    calibrator.set_execution_providers(["CUDAExecutionProvider"])
+
+    # DataReader can handle dataset with batch or serial processing depends on its implementation
+    # Following examples show two different ways to generate calibration table
+    '''
+    1. Use serial processing
+    
+    We can use only one data reader to do serial processing, however,
+    some machines don't have sufficient memory to hold all dataset images and all intermediate output.
+    So let multiple data readers to handle different stride of dataset one by one.
+    DataReader will use serial processing when batch_size is 1.
+    '''
+
+    width = 384
+    height = 384
+
+    total_data_size = len(os.listdir(calibration_dataset))
+    start_index = 0
+    stride = 20 
+    batch_size = 1
+    for i in range(0, total_data_size, stride):
+        data_reader = TOFADataReader(calibration_dataset,
+                                              width=width,
+                                              height=height,
+                                              start_index=start_index,
+                                              end_index=start_index + stride,
+                                              stride=stride,
+                                              batch_size=batch_size,
+                                              model_path=augmented_model_path)
+        calibrator.collect_data(data_reader)
+        start_index += stride
+    '''
+    2. Use batch processing (much faster)
+    
+    Batch processing requires less memory for intermediate output, therefore let only one data reader to handle dataset in batch. 
+    However, if encountering OOM, we can make multiple data reader to do the job just like serial processing does. 
+    DataReader will use batch processing when batch_size > 1.
+    '''
+
+    # batch_size = 20
+    # stride=1000
+    # data_reader = YoloV3VariantDataReader(calibration_dataset,
+                                          # width=width,
+                                          # height=height,
+                                          # stride=stride,
+                                          # batch_size=batch_size,
+                                          # model_path=augmented_model_path)
+    # calibrator.collect_data(data_reader)
+
+    write_calibration_table(calibrator.compute_range())
+    print('calibration table generated and saved.')
+
+
 if __name__ == '__main__':
     '''
     TensorRT EP INT8 Inference on Yolov3 model.
@@ -169,6 +225,7 @@ if __name__ == '__main__':
     calibration_dataset = './train2017/calib'
     validation_dataset = './val2017'
     is_onnx_model_zoo_yolov3 = False 
+    is_tofa = True
 
     # TensorRT EP INT8 settings
     os.environ["ORT_TENSORRT_FP16_ENABLE"] = "1"  # Enable FP16 precision
@@ -177,7 +234,11 @@ if __name__ == '__main__':
     os.environ["ORT_TENSORRT_ENGINE_CACHE_ENABLE"] = "1"  # Enable engine caching
     execution_provider = ["TensorrtExecutionProvider"]
 
-    if is_onnx_model_zoo_yolov3:
+    if is_tofa:
+        model_path = 'tofa_Min.onnx'
+        get_calibration_table_tofa(model_path, augmented_model_path, calibration_dataset)
+        #get_prediction_evaluation(model_path, validation_dataset, execution_provider)
+    elif is_onnx_model_zoo_yolov3:
         model_path = 'yolov3.onnx'
         get_calibration_table(model_path, augmented_model_path, calibration_dataset)
         get_prediction_evaluation(model_path, validation_dataset, execution_provider)
