@@ -1,5 +1,6 @@
 import os
 from onnxruntime.quantization import create_calibrator, write_calibration_table, CalibrationMethod
+from onnxruntime.quantization import quantize_static
 from data_reader import YoloV3DataReader, YoloV3VariantDataReader, TOFADataReader
 from preprocessing import yolov3_preprocess_func, yolov3_preprocess_func_2, yolov3_variant_preprocess_func, yolov3_variant_preprocess_func_2, tofa_preprocess_func
 from evaluate import YoloV3Evaluator, YoloV3VariantEvaluator,YoloV3Variant2Evaluator, YoloV3Variant3Evaluator, TOFAEvaluator
@@ -201,6 +202,23 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
 
     write_calibration_table(cal) 
     print('calibration table generated and saved.')
+
+    quant_model_path = model_path.split('.onnx')[0]
+    quant_model_path = quant_model_path + '_quant.onnx'
+
+    data_reader = TOFADataReader(calibration_dataset,
+                                 width=384,
+                                 height=384,
+                                 stride=1000,
+                                 batch_size=1,
+                                 model_path=augmented_model_path)
+    
+    quantize_static(model_path, quant_model_path, data_reader) # last data reader...
+    print(f'Wrote {quant_model_path}...')
+
+    print('ONNX full precision model size (MB):', os.path.getsize(model_path)/(1024*1024))
+    print('ONNX quantized model size (MB):', os.path.getsize(quant_model_path)/(1024*1024))
+    
 
 def get_prediction_evaluation_tofa(model_path, validation_dataset, providers):
 
