@@ -172,7 +172,34 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
         calibrator.collect_data(data_reader)
         start_index += stride
 
-    write_calibration_table(calibrator.compute_range())
+    range_dict = calibrator.compute_range()
+    cal=dict()
+
+    #TODO: DO we need this in any other versions... json is not liking the tuple, complaining about a float error...
+    """
+      File "e2e_user_yolov3_example.py", line 246, in <module>
+        get_calibration_table_tofa(model_path, augmented_model_path, calibration_dataset)
+    File "e2e_user_yolov3_example.py", line 178, in get_calibration_table_tofa
+        write_calibration_table(r)
+    File "/home/lbathen/miniconda3/envs/onnx/lib/python3.8/site-packages/onnxruntime/quantization/quant_utils.py", line 409, in write_calibration_table
+        file.write(json.dumps(calibration_cache))  # use `json.loads` to do the reverse
+    File "/home/lbathen/miniconda3/envs/onnx/lib/python3.8/json/__init__.py", line 231, in dumps
+        return _default_encoder.encode(obj)
+    File "/home/lbathen/miniconda3/envs/onnx/lib/python3.8/json/encoder.py", line 199, in encode
+        chunks = self.iterencode(o, _one_shot=True)
+    File "/home/lbathen/miniconda3/envs/onnx/lib/python3.8/json/encoder.py", line 257, in iterencode
+        return _iterencode(o, 0)
+    File "/home/lbathen/miniconda3/envs/onnx/lib/python3.8/json/encoder.py", line 179, in default
+        raise TypeError(f'Object of type {o.__class__.__name__} '
+    TypeError: Object of type float32 is not JSON serializable
+    """
+    for k in range_dict.keys():                                                                                                                                                                                      
+        r1 = float(range_dict[k][0])                                                                                                                                                                                 
+        r2 = float(range_dict[k][1])                                                                                                                                                                                 
+        cal[k]=(r1,r2)                                                                                                                                                                                               
+        print(cal)
+
+    write_calibration_table(cal) 
     print('calibration table generated and saved.')
 
 def get_prediction_evaluation_tofa(model_path, validation_dataset, providers):
@@ -219,7 +246,7 @@ if __name__ == '__main__':
 
         (Reference and modify from https://github.com/immersive-limit/coco-manager)
     5. Download Yolov3 model:
-        (i) ONNX model zoo yolov3: https://github.com/onnx/models/raw/master/vision/object_detection_segmentation/yolov3/model/yolov3-10.onnx 
+        (i) ONNX model zoo yolov3: https://github.com/onnx/models/raw/main/vision/object_detection_segmentation/yolov3/model/yolov3-10.onnx 
         (ii) yolov3 variants: https://github.com/jkjung-avt/tensorrt_demos.git
     '''
 

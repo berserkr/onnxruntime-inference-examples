@@ -279,7 +279,7 @@ def tofa_preprocess_func(images_folder, height, width, start_index=0, size_limit
         im_norm = (im_resize/255.-IMAGENET_PIXEL_MEAN)/IMAGENET_PIXEL_STD
         im_transpose = im_norm.transpose(2,0,1)
 
-        return im_transpose.astype(np.int32)
+        return im_transpose.astype(np.float32)
 
     image_names = os.listdir(images_folder)
     if start_index >= len(image_names):
