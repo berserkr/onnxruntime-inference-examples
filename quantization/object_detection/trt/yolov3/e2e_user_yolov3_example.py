@@ -158,7 +158,7 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
 
     total_data_size = len(os.listdir(calibration_dataset))
     start_index = 0
-    stride = 50 
+    stride = 100
     batch_size = 1
     for i in range(0, total_data_size, stride):
         data_reader = TOFADataReader(calibration_dataset,
@@ -210,7 +210,7 @@ def get_prediction_evaluation_tofa(model_path, validation_dataset, providers):
 
     total_data_size = len(os.listdir(validation_dataset)) 
     start_index = 0
-    stride=50
+    stride=100
     batch_size = 1
     for i in range(0, total_data_size, stride):
         data_reader = TOFADataReader(validation_dataset,
