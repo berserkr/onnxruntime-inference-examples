@@ -13,6 +13,103 @@ import numpy as np
 import torch
 import torchvision
 
+IMAGENET_PIXEL_MEAN = np.array([123.675, 116.280, 103.530]) / 255
+IMAGENET_PIXEL_STD = np.array([58.395, 57.12, 57.375]) / 255
+
+def _nms(boxes, scores, thresh):
+    # https://github.com/rbgirshick/fast-rcnn/blob/master/lib/utils/nms.py
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= thresh)[0]
+        order = order[inds + 1]
+
+    return keep
+
+def NMS(preds, conf_thres, iou_thres):
+
+    # preds in shape [batch_size, n_boxes, 5+n_classes]
+    # values are in order of [c,x,y,w,h, ... n_classes]
+    
+    preds = preds.cpu()
+    n_classes = preds.size(-1) - 5
+    #preds = preds[preds[...,0] > conf_thres]
+    #if preds.size(0) == 0: return torch.Tensor()
+    batch_size = preds.size(0)
+
+    preds = torch.cat([preds[...,:5], preds[...,5:].argmax(dim=-1).unsqueeze(-1)], dim=-1)
+    result = []
+
+    for batch_idx in range(batch_size):
+        class_result = []
+        preds_batch = preds[batch_idx]
+        for class_idx in range(n_classes):
+            preds_class = preds_batch[preds_batch[...,5] == class_idx]
+            preds_class = preds_class[preds_class[...,0] > conf_thres]
+            if preds_class.size(0)>0:
+                keep = _nms(
+                    boxes=preds_class[...,1:5].cpu().numpy(),
+                    scores=preds_class[...,0].cpu().numpy(),
+                    thresh=iou_thres)
+                class_result.append(preds_class[keep])
+        result.append(torch.cat(class_result, dim=0) if len(class_result)>0 else ())
+    
+    return result
+
+# necessary funcation
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+def processOutput(preds, conf_thres, iou_thres):
+    preds = np.array(preds)
+    batch_size = preds.shape[0]
+    n_classes = preds.shape[-1] - 5
+
+    # process cxcywh to x1y1x2y2
+    preds[...,0] = sigmoid(preds[...,0])
+    preds[...,1] = preds[...,1] - preds[...,3]/2
+    preds[...,2] = preds[...,2] - preds[...,4]/2
+    preds[...,3] = preds[...,1] + preds[...,3]
+    preds[...,4] = preds[...,2] + preds[...,4]
+    preds = np.concatenate([preds[...,:5], np.expand_dims(preds[...,5:].argmax(axis=-1), axis=-1)], axis=-1)
+
+    result = []
+
+    for batch_idx in range(batch_size):
+        class_result = []
+        preds_batch = preds[batch_idx]
+        for class_idx in range(n_classes):
+            preds_class = preds_batch[preds_batch[...,5] == class_idx]
+            preds_class = preds_class[preds_class[...,0] > conf_thres]
+            if preds_class.shape[0]>0:
+                keep = _nms(
+                    boxes=preds_class[...,1:5],
+                    scores=preds_class[...,0],
+                    thresh=iou_thres)
+                class_result.append(preds_class[keep])
+        result.append(np.concatenate(class_result, axis=0) if len(class_result)>0 else ())
+
+    return result
+
 class YoloV3Evaluator:
     def __init__(self,
                  model_path,
@@ -523,6 +620,77 @@ class YoloV3Variant3Evaluator(YoloV3Evaluator):
                 x2 = dets[i, 2]
                 y2 = dets[i, 3]
                 score = dets[i, 4]
+
+                bbox = [x1, y1, x2-x1, y2-y1]
+                self.prediction_result_list.append({
+                    "image_id": int(image_id),
+                    "category_id": int(id),
+                    "bbox": list(bbox),
+                    "score": score 
+                })
+
+
+class TOFAEvaluator(YoloV3Evaluator):
+    def __init__(self,
+                 model_path,
+                 data_reader: CalibrationDataReader,
+                 width=384,
+                 height=384,
+                 providers=["CUDAExecutionProvider"],
+                 ground_truth_object_class_file="./coco-object-categories-2017.json",
+                 onnx_object_class_file="./onnx_coco_classes.txt"):
+
+        TOFAEvaluator.__init__(self, model_path, data_reader, width, height, providers,
+                                 ground_truth_object_class_file, onnx_object_class_file)
+
+    def predict(self):
+        session = onnxruntime.InferenceSession(self.model_path, providers=self.providers)
+        outputs = []
+
+        image_id_list = []
+        image_id_batch = []
+        image_size_list = []
+        image_size_batch = []
+            
+        class_name = 'person'
+        id = self.class_to_id[class_name]
+
+        while True:
+            inputs = self.data_reader.get_next()
+            if not inputs:
+                break
+            image_size_list = inputs["image_size"]
+            image_id_list = inputs["image_id"]
+            del inputs["image_size"]
+            del inputs["image_id"]
+
+            # in the case of batch size is 1
+            if type(image_id_list) == int:
+                image_size_list = [image_size_list]
+                image_id_list = [image_id_list]
+
+            image_size_batch.append(image_size_list)
+            image_id_batch.append(image_id_list)
+            outputs.append(session.run(None, inputs))
+
+        for j in range(len(outputs)):
+            output = outputs[j]
+
+            boxes = processOutput(output, 0.65, 0.7)
+
+            print(boxes[0])
+            boxes = boxes[0] #batch = 1
+
+            image_id = image_id_batch[j][0]
+            h = image_size_batch[j][0][0]
+            w = image_size_batch[j][0][1]
+
+            for b in boxes:
+                score, x1, y1, x2, y2, id = b
+                x1 = max(0, int(x1*w))
+                y1 = max(0, int(y1*h))
+                x2 = min(w-1, int(x2*w))
+                y2 = min(h-1, int(y2*h))
 
                 bbox = [x1, y1, x2-x1, y2-y1]
                 self.prediction_result_list.append({
