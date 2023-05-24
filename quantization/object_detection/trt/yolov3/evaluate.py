@@ -640,7 +640,7 @@ class TOFAEvaluator(YoloV3Evaluator):
                  ground_truth_object_class_file="./coco-object-categories-2017.json",
                  onnx_object_class_file="./onnx_coco_classes.txt"):
 
-        TOFAEvaluator.__init__(self, model_path, data_reader, width, height, providers,
+        YoloV3Evaluator.__init__(self, model_path, data_reader, width, height, providers,
                                  ground_truth_object_class_file, onnx_object_class_file)
 
     def predict(self):
