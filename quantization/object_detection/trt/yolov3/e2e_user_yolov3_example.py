@@ -204,10 +204,9 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
 
 def get_prediction_evaluation_tofa(model_path, validation_dataset, providers):
 
-    evaluator = TOFAEvaluator(model_path, None, width=width, height=height, providers=providers)
-
     width = 384 
     height = 384 
+    evaluator = TOFAEvaluator(model_path, None, width=width, height=height, providers=providers)
 
     total_data_size = len(os.listdir(validation_dataset)) 
     start_index = 0
