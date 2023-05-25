@@ -176,7 +176,8 @@ def get_op_nodes_not_followed_by_specific_op(model, op1, op2):
 
 def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dataset):
 
-    calibrator = create_calibrator(model_path, [], augmented_model_path=augmented_model_path, calibrate_method=CalibrationMethod.Entropy)
+    op_types_to_quantize = ['MatMul', 'Add']
+    calibrator = create_calibrator(model_path, op_types_to_quantize, augmented_model_path=augmented_model_path, calibrate_method=CalibrationMethod.Entropy)
     calibrator.set_execution_providers(["CUDAExecutionProvider"])
 
     width = 384
@@ -231,12 +232,15 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
     quant_model_path = model_path.split('.onnx')[0]
     quant_model_path = quant_model_path + '_quant.onnx'
 
+    """
     data_reader = TOFADataReader(calibration_dataset,
                                  width=384,
                                  height=384,
                                  stride=1000,
                                  batch_size=1,
                                  model_path=augmented_model_path)
+    """
+
      # Generate QDQ model
     mode = QuantizationMode.QLinearOps
     
