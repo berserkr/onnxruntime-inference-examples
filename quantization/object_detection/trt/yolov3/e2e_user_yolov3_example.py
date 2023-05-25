@@ -3,7 +3,7 @@ from pathlib import Path
 
 from onnxruntime.quantization import create_calibrator, write_calibration_table, CalibrationMethod
 from onnxruntime.quantization import CalibrationMethod, QuantType, QuantizationMode, QDQQuantizer
-from onnxruntime.quantization import quantize_static
+from onnxruntime.quantization import quantize_static, quantize_dynamic
 import onnx
 
 from data_reader import YoloV3DataReader, YoloV3VariantDataReader, TOFADataReader
@@ -183,9 +183,9 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
     width = 384
     height = 384
 
-    total_data_size = min(100,len(os.listdir(calibration_dataset))) # limit it to 1000 samples for now...
+    total_data_size = min(1000,len(os.listdir(calibration_dataset))) # limit it to 1000 samples for now...
     start_index = 0
-    stride = 50
+    stride = 500
     batch_size = 1
     for i in range(0, total_data_size, stride):
         data_reader = TOFADataReader(calibration_dataset,
@@ -232,16 +232,7 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
     quant_model_path = model_path.split('.onnx')[0]
     quant_model_path = quant_model_path + '_quant.onnx'
 
-    """
-    data_reader = TOFADataReader(calibration_dataset,
-                                 width=384,
-                                 height=384,
-                                 stride=1000,
-                                 batch_size=1,
-                                 model_path=augmented_model_path)
-    """
-
-     # Generate QDQ model
+    # Generate QDQ model
     mode = QuantizationMode.QLinearOps
     
     model = onnx.load_model(Path(model_path), False)
@@ -267,6 +258,27 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
         {'ActivationSymmetric' : True, 'AddQDQPairToWeight' : True, 'OpTypesToExcludeOutputQuantization': op_types_to_quantize, 'DedicatedQDQPair': True, 'QDQOpTypePerChannelSupportToAxis': {'MatMul': 1} }) #extra_options
     quantizer.quantize_model()
     quantizer.model.save_model_to_file(quant_model_path, False)
+
+    print('ONNX full precision model size (MB):', os.path.getsize(model_path)/(1024*1024))
+    print('ONNX quantized model size (MB):', os.path.getsize(quant_model_path)/(1024*1024))
+
+    quant_model_path = model_path.split('.onnx')[0]
+    quant_model_path = quant_model_path + '_dyn_quant.onnx'
+    quantize_dynamic(model_path, quant_model_path)
+
+    print('ONNX full precision model size (MB):', os.path.getsize(model_path)/(1024*1024))
+    print('ONNX quantized model size (MB):', os.path.getsize(quant_model_path)/(1024*1024))
+
+    data_reader = TOFADataReader(calibration_dataset,
+                                 width=384,
+                                 height=384,
+                                 stride=1000,
+                                 batch_size=1,
+                                 model_path=augmented_model_path)
+    
+    quant_model_path = model_path.split('.onnx')[0]
+    quant_model_path = quant_model_path + '_sta_quant.onnx'
+    quantize_static(model_path, quant_model_path, data_reader)
 
     print('ONNX full precision model size (MB):', os.path.getsize(model_path)/(1024*1024))
     print('ONNX quantized model size (MB):', os.path.getsize(quant_model_path)/(1024*1024))
