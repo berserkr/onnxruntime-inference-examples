@@ -693,7 +693,7 @@ class TOFAEvaluator(YoloV3Evaluator):
                 y2 = min(h-1, int(y2*h))
 
                 # already x2,y2 are height, width respectively
-                bbox = [x1, y1, x2, y2]
+                bbox = [x1, y1, x1+x2, y1+y2]
                 self.prediction_result_list.append({
                     "image_id": int(image_id),
                     "category_id": int(id),
