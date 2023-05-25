@@ -1,6 +1,11 @@
 import os
+from pathlib import Path
+
 from onnxruntime.quantization import create_calibrator, write_calibration_table, CalibrationMethod
+from onnxruntime.quantization import CalibrationMethod, QuantType, QuantizationMode, QDQQuantizer
 from onnxruntime.quantization import quantize_static
+import onnx
+
 from data_reader import YoloV3DataReader, YoloV3VariantDataReader, TOFADataReader
 from preprocessing import yolov3_preprocess_func, yolov3_preprocess_func_2, yolov3_variant_preprocess_func, yolov3_variant_preprocess_func_2, tofa_preprocess_func
 from evaluate import YoloV3Evaluator, YoloV3VariantEvaluator,YoloV3Variant2Evaluator, YoloV3Variant3Evaluator, TOFAEvaluator
@@ -148,6 +153,26 @@ def get_prediction_evaluation_yolov3_variant(model_path, validation_dataset, pro
     annotations = './annotations/instances_val2017.json'
     evaluator.evaluate(result, annotations)
 
+def get_op_nodes_not_followed_by_specific_op(model, op1, op2):
+    op1_nodes = []
+    op2_nodes = []
+    selected_op1_nodes = []
+    not_selected_op1_nodes = []
+
+    for node in model.graph.node:
+        if node.op_type == op1:
+            op1_nodes.append(node)
+        if node.op_type == op2:
+            op2_nodes.append(node)
+
+    for op1_node in op1_nodes:
+        for op2_node in op2_nodes:
+            if op1_node.output == op2_node.input:
+                selected_op1_nodes.append(op1_node.name)
+        if op1_node.name not in selected_op1_nodes:
+            not_selected_op1_nodes.append(op1_node.name)
+
+    return not_selected_op1_nodes
 
 def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dataset):
 
@@ -157,9 +182,9 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
     width = 384
     height = 384
 
-    total_data_size = len(os.listdir(calibration_dataset))
+    total_data_size = min(100,len(os.listdir(calibration_dataset))) # limit it to 1000 samples for now...
     start_index = 0
-    stride = 100
+    stride = 50
     batch_size = 1
     for i in range(0, total_data_size, stride):
         data_reader = TOFADataReader(calibration_dataset,
@@ -174,7 +199,7 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
         start_index += stride
 
     range_dict = calibrator.compute_range()
-    cal=dict()
+    compute_range=dict()
 
     #TODO: DO we need this in any other versions... json is not liking the tuple, complaining about a float error...
     """
@@ -197,10 +222,10 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
     for k in range_dict.keys():                                                                                                                                                                                      
         r1 = float(range_dict[k][0])                                                                                                                                                                                 
         r2 = float(range_dict[k][1])                                                                                                                                                                                 
-        cal[k]=(r1,r2)                                                                                                                                                                                               
-        print(cal)
+        compute_range[k]=(r1,r2)                                                                                                                                                                                               
+        print(compute_range)
 
-    write_calibration_table(cal) 
+    write_calibration_table(compute_range) 
     print('calibration table generated and saved.')
 
     quant_model_path = model_path.split('.onnx')[0]
@@ -212,13 +237,36 @@ def get_calibration_table_tofa(model_path, augmented_model_path, calibration_dat
                                  stride=1000,
                                  batch_size=1,
                                  model_path=augmented_model_path)
+     # Generate QDQ model
+    mode = QuantizationMode.QLinearOps
     
-    quantize_static(model_path, quant_model_path, data_reader) # last data reader...
-    print(f'Wrote {quant_model_path}...')
+    model = onnx.load_model(Path(model_path), False)
+
+    # In TRT, it recommended to add QDQ pair to inputs of Add node followed by ReduceMean node.
+    nodes_to_exclude = get_op_nodes_not_followed_by_specific_op(model, "Add", "ReduceMean")
+    op_types_to_quantize = ['MatMul', 'Add']
+    
+    #quantize_static(model_path, quant_model_path, data_reader) # last data reader...
+    #print(f'Wrote {quant_model_path}...')
+    quantizer = QDQQuantizer(
+        model,
+        True, #per_channel
+        False, #reduce_range
+        mode,
+        True,  #static
+        QuantType.QInt8, #weight_type
+        QuantType.QInt8, #activation_type
+        compute_range,
+        [], #nodes_to_quantize
+        nodes_to_exclude,
+        op_types_to_quantize,
+        {'ActivationSymmetric' : True, 'AddQDQPairToWeight' : True, 'OpTypesToExcludeOutputQuantization': op_types_to_quantize, 'DedicatedQDQPair': True, 'QDQOpTypePerChannelSupportToAxis': {'MatMul': 1} }) #extra_options
+    quantizer.quantize_model()
+    quantizer.model.save_model_to_file(quant_model_path, False)
 
     print('ONNX full precision model size (MB):', os.path.getsize(model_path)/(1024*1024))
     print('ONNX quantized model size (MB):', os.path.getsize(quant_model_path)/(1024*1024))
-    
+
 
 def get_prediction_evaluation_tofa(model_path, validation_dataset, providers):
 
@@ -226,9 +274,9 @@ def get_prediction_evaluation_tofa(model_path, validation_dataset, providers):
     height = 384 
     evaluator = TOFAEvaluator(model_path, None, width=width, height=height, providers=providers)
 
-    total_data_size = len(os.listdir(validation_dataset)) 
+    total_data_size = min(1000,len(os.listdir(validation_dataset))) # max of 1000 samples...
     start_index = 0
-    stride=100
+    stride=500
     batch_size = 1
     for i in range(0, total_data_size, stride):
         data_reader = TOFADataReader(validation_dataset,
